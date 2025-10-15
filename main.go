@@ -21,7 +21,17 @@ var (
 )
 
 func main() {
+	// check config variables before proceeding
+	// don't want to start server if any are null
+	if sonarrAPI == "" || sonarrURL == "" {
+		log.Fatal("Sonarr values are empty. Please fill them in before proceeding")
+	}
 
+	if radarrAPI == "" || radarrURL == "" {
+		log.Fatal("Radarr values are empty. Please fill them in before proceeding")
+	}
+
+	// TODO: Set a default root path for TV and Movies if not set
 	http.HandleFunc("/sms", smsHandler)
 
 	port := "6000"
