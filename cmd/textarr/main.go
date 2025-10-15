@@ -2,15 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
+	"github.com/tylerlang94/TextArr/internal/configuration"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 )
 
+/*
 var (
 	sonarrURL     = os.Getenv("SONARR_URL")
 	sonarrAPI     = os.Getenv("SONARR_API")
@@ -19,27 +21,77 @@ var (
 	tvRootPath    = os.Getenv("TV_ROOT_PATH")
 	movieRootPath = os.Getenv("MOVIE_ROOT_PATH")
 )
+*/
+
+var configPath = flag.String("config", "", "Path to config file (YAML)")
+
+type App struct {
+	sonarrUrl     string
+	sonarrApi     string
+	radarrUrl     string
+	radarrApi     string
+	tvRootPath    string
+	movieRootPath string
+}
 
 func main() {
+	flag.Parse()
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		log.Fatalf("config error: %v", err)
+	}
+
+	app := &App{
+		sonarrUrl:     cfg.Sonarr.URL,
+		sonarrApi:     cfg.Radarr.API,
+		radarrUrl:     cfg.Radarr.URL,
+		radarrApi:     cfg.Radarr.API,
+		tvRootPath:    cfg.Paths.TV,
+		movieRootPath: cfg.Paths.Movies,
+	}
+
 	// check config variables before proceeding
 	// don't want to start server if any are null
-	if sonarrAPI == "" || sonarrURL == "" {
+	if app.radarrApi == "" || app.radarrUrl == "" {
 		log.Fatal("Sonarr values are empty. Please fill them in before proceeding")
 	}
 
-	if radarrAPI == "" || radarrURL == "" {
+	if app.sonarrApi == "" || app.sonarrUrl == "" {
 		log.Fatal("Radarr values are empty. Please fill them in before proceeding")
 	}
 
 	// TODO: Set a default root path for TV and Movies if not set
-	http.HandleFunc("/sms", smsHandler)
+	http.HandleFunc("/sms", app.smsHandler)
 
 	port := "6000"
 	log.Printf("listening on port %s... ", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
-func smsHandler(w http.ResponseWriter, r *http.Request) {
+func loadConfig(path string) (*configuration.Config, error) {
+	var cfg configuration.Config
+
+	// Load YAML if provided
+	if path != "" {
+		// use your strict loader if you added it
+		if err := configuration.LoadConfig(path, &cfg); err != nil {
+			return nil, err
+		}
+	}
+
+	// overlay environment and normalize/validate
+	cfg.ApplyEnv()
+	if err := cfg.Normalize(); err != nil {
+		return nil, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func (a *App) smsHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		log.Println("Error parsing form:", err)
 		http.Error(w, "Bad Requests:", http.StatusBadRequest)
@@ -54,13 +106,13 @@ func smsHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(strings.ToLower(message), "request") {
 		title := strings.TrimSpace(message[7:])
 		if strings.Contains(strings.ToLower(message), "movies:") {
-			if addToRadarr(title) {
+			if a.addToRadarr(title) {
 				responseText = fmt.Sprintf("Movie '%s' added!", title)
 			} else {
 				responseText = fmt.Sprintf("Could not find movie '%s'", title)
 			}
 		} else {
-			if addToSonarr(title) {
+			if a.addToSonarr(title) {
 				responseText = fmt.Sprintf("Show '%s' added", title)
 			} else {
 				responseText = fmt.Sprintf("Could not find show '%s'", title)
@@ -74,9 +126,9 @@ func smsHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "<Response><Message>%s</Message></Response>", responseText)
 }
 
-func addToRadarr(title string) bool {
-	lookupUrl := fmt.Sprintf("%s/api/v3/movie/lookup?term=%s", radarrURL, url.QueryEscape(title))
-	data, err := doGet(lookupUrl, radarrAPI)
+func (a *App) addToRadarr(title string) bool {
+	lookupUrl := fmt.Sprintf("%s/api/v3/movie/lookup?term=%s", a.radarrUrl, url.QueryEscape(title))
+	data, err := doGet(lookupUrl, a.radarrApi)
 	if err != nil {
 		return false
 	}
@@ -93,7 +145,7 @@ func addToRadarr(title string) bool {
 		"images":           movie["images"],
 		"imdbId":           movie["tmdbId"],
 		"year":             movie["year"],
-		"rootFolderPath":   movieRootPath,
+		"rootFolderPath":   a.movieRootPath,
 		"monitored":        true,
 		"qualityProfileId": 1,
 		"addOptions": map[string]bool{
@@ -101,13 +153,13 @@ func addToRadarr(title string) bool {
 		},
 	}
 
-	postUrl := fmt.Sprintf("%s/api/v3/movie", radarrURL)
-	return doPost(postUrl, radarrAPI, payload)
+	postUrl := fmt.Sprintf("%s/api/v3/movie", a.radarrUrl)
+	return doPost(postUrl, a.radarrApi, payload)
 }
 
-func addToSonarr(title string) bool {
-	lookupURL := fmt.Sprintf("%s/api/v3/series/lookup?term=%s", sonarrURL, url.QueryEscape(title))
-	data, err := doGet(lookupURL, sonarrAPI)
+func (a *App) addToSonarr(title string) bool {
+	lookupURL := fmt.Sprintf("%s/api/v3/series/lookup?term=%s", a.sonarrUrl, url.QueryEscape(title))
+	data, err := doGet(lookupURL, a.sonarrApi)
 	if err != nil {
 		return false
 	}
@@ -123,7 +175,7 @@ func addToSonarr(title string) bool {
 		"titleSlug":        series["titleSlug"],
 		"images":           series["images"],
 		"seasons":          series["seasons"],
-		"rootFolderPath":   tvRootPath,
+		"rootFolderPath":   a.tvRootPath,
 		"monitored":        true,
 		"qualityProfileId": 1,
 		"addOptions": map[string]bool{
@@ -131,8 +183,8 @@ func addToSonarr(title string) bool {
 		},
 	}
 
-	postURL := fmt.Sprintf("%s/api/v3/series", sonarrURL)
-	return doPost(postURL, sonarrAPI, payload)
+	postURL := fmt.Sprintf("%s/api/v3/series", a.sonarrUrl)
+	return doPost(postURL, a.sonarrApi, payload)
 }
 
 func doGet(url, apiKey string) ([]byte, error) {
