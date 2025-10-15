@@ -11,7 +11,6 @@ import (
 	"strings"
 )
 
-// Handlers
 var (
 	sonarrURL     = os.Getenv("SONARR_URL")
 	sonarrAPI     = os.Getenv("SONARR_API")
