@@ -81,13 +81,13 @@ func addToRadarr(title string) bool {
 		return false
 	}
 
-	var results []map[string]interface{}
+	var results []map[string]any
 	if err := json.Unmarshal(data, &results); err != nil || len(results) == 0 {
 		return false
 	}
 
 	movie := results[0]
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"title":            movie["title"],
 		"titleSlig":        movie["titleSlug"],
 		"images":           movie["images"],
@@ -112,13 +112,13 @@ func addToSonarr(title string) bool {
 		return false
 	}
 
-	var results []map[string]interface{}
+	var results []map[string]any
 	if err := json.Unmarshal(data, &results); err != nil || len(results) == 0 {
 		return false
 	}
 
 	series := results[0]
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"title":            series["title"],
 		"titleSlug":        series["titleSlug"],
 		"images":           series["images"],
@@ -149,7 +149,7 @@ func doGet(url, apiKey string) ([]byte, error) {
 	return io.ReadAll(req.Body)
 }
 
-func doPost(url, apiKey string, payload interface{}) bool {
+func doPost(url, apiKey string, payload any) bool {
 	jsonData, _ := json.Marshal(payload)
 	req, _ := http.NewRequest("POST", url, strings.NewReader(string(jsonData)))
 	req.Header.Set("Content-Type", "application/json")
